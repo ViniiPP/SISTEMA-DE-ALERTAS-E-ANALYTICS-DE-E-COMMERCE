@@ -60,4 +60,4 @@ docker exec -it flink-jobmanager flink run -py /opt/flink/flink_fraud_alert.py
 Na pasta `outputs` do repositório eu deixei as imagens de cada etapa rodando (Kafka recebendo dados, Mongo guardando os documentos, Flink rodando em streaming, Redis com os alertas e o banco relacional atualizado pelo Airflow).
 
 ---
-*Feito para aplicar na prática conceitos de Engenharia de Dados e mensageria!*
+*Feito para aplicar na prática conceitos de Engenharia de Dados e mensageria - Atitus Educação*
