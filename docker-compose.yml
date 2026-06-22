@@ -1,0 +1,232 @@
+version: '3.8'
+
+services:
+  kafka:
+    image: confluentinc/cp-kafka:7.7.7
+    container_name: kafka
+    hostname: kafka
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:29093
+      KAFKA_LISTENERS: PLAINTEXT://kafka:9092,CONTROLLER://kafka:29093,EXTERNAL://0.0.0.0:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:29092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_NUM_PARTITIONS: 3
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      CLUSTER_ID: "XYkLGdpzdGDeTFUrIPOE1g=="
+    healthcheck:
+      test: ["CMD-SHELL", "/bin/kafka-broker-api-versions --bootstrap-server kafka:9092 > /dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+    networks:
+      - ecom_network
+
+  kafbat-ui:
+    image: ghcr.io/kafbat/kafka-ui:latest
+    container_name: kafbat-ui
+    ports:
+      - "8085:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local-cluster
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - ecom_network
+
+  flink-jobmanager:
+    image: fahadkalil/my-flink:latest
+    container_name: flink-jobmanager
+    platform: linux/amd64
+    ports:
+      - "8081:8081"
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: flink-jobmanager
+    command: jobmanager
+    networks:
+      - ecom_network
+
+  flink-taskmanager:
+    image: fahadkalil/my-flink:latest
+    container_name: flink-taskmanager
+    platform: linux/amd64
+    depends_on:
+      - flink-jobmanager
+    command: taskmanager
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: flink-jobmanager
+        taskmanager.numberOfTaskSlots: 4
+    networks:
+      - ecom_network
+
+
+  valkey:
+    image: valkey/valkey:latest
+    container_name: valkey-redis    
+    hostname: valkey
+    ports:
+      - "6379:6379"
+    networks:
+      - ecom_network
+
+  redisinsight:
+    image: redis/redisinsight:latest
+    container_name: redisinsight-ui
+    depends_on:
+      - valkey    
+    ports:
+      - "5540:5540"
+    environment:      
+      RI_REDIS_HOST: valkey-redis
+      RI_REDIS_PORT: 6379
+      RI_REDIS_ALIAS: LocalConnection
+    networks:
+      - ecom_network
+
+
+  mongo:
+    image: mongo:7.0
+    container_name: mongo
+    hostname: mongo
+    command: ["--replSet", "rs0", "--bind_ip_all", "--port", "27017"]
+    ports:
+      - "27017:27017"
+    healthcheck:
+      test: echo "try { rs.status() } catch (err) { rs.initiate({_id:'rs0',members:[{_id:0,host:'mongo:27017'}]}) }" | mongosh --port 27017 --quiet
+      interval: 5s
+      timeout: 30s
+      start_period: 0s
+      start_interval: 1s
+      retries: 30
+    networks:
+      - ecom_network
+
+  mongo-express:
+    image: mongo-express
+    container_name: mongo-express-ui
+    depends_on:
+      - mongo
+    ports:
+      - "8082:8081"
+    environment:
+      ME_CONFIG_MONGODB_SERVER: mongo
+      ME_CONFIG_MONGODB_REPLSET: rs0
+      ME_CONFIG_MONGODB_URL: mongodb://mongo:27017/?replicaSet=rs0
+      ME_CONFIG_BASICAUTH_USERNAME: admin
+      ME_CONFIG_BASICAUTH_PASSWORD: pass
+    networks:
+      - ecom_network
+
+  postgres:
+    image: postgres:17
+    container_name: postgres
+    hostname: postgres    
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin
+      POSTGRES_DB: bigdata
+    ports:
+      - "5434:5432"
+    volumes:
+      - ./init_postgres.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck: 
+      test: ["CMD-SHELL", "pg_isready -U admin -d bigdata"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ecom_network
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: pgadmin
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8084:80"
+    environment:
+      PGADMIN_DEFAULT_EMAIL: pgadmin4@pgadmin.org
+      PGADMIN_DEFAULT_PASSWORD: password
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"    
+    networks:
+      - ecom_network
+
+  airflow-postgres:    
+    image: postgres:14.0
+    container_name: airflow_postgres
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    networks:
+      - ecom_network
+
+  airflow-init:
+    image: apache/airflow:2.8.1
+    container_name: airflow-init
+    depends_on:
+      - airflow-postgres
+    environment:
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: "postgresql+psycopg2://airflow:airflow@airflow-postgres/airflow"
+    command: >
+      bash -c "airflow db migrate && airflow users create --username admin --password admin --firstname Admin --lastname User --role Admin --email admin@example.com"
+    networks:
+      - ecom_network
+
+  airflow-webserver:
+    image: apache/airflow:2.8.1
+    container_name: airflow-webserver
+    depends_on:
+      - airflow-postgres
+      - airflow-init
+    ports:
+      - "8086:8080"
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: "postgresql+psycopg2://airflow:airflow@airflow-postgres/airflow"
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
+      AIRFLOW__API__AUTH_BACKENDS: 'airflow.api.auth.backend.basic_auth, airflow.api.auth.backend.session'
+      _PIP_ADDITIONAL_REQUIREMENTS: "pymongo"
+    volumes:
+      - ./dags:/opt/airflow/dags
+    command: webserver
+    networks:
+      - ecom_network
+
+  airflow-scheduler:
+    image: apache/airflow:2.8.1
+    container_name: airflow-scheduler
+    depends_on:
+      - airflow-postgres
+      - airflow-init
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: "postgresql+psycopg2://airflow:airflow@airflow-postgres/airflow"
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
+      _PIP_ADDITIONAL_REQUIREMENTS: "pymongo"
+    volumes:
+      - ./dags:/opt/airflow/dags
+    command: scheduler
+    networks:
+      - ecom_network
+
+networks:
+  ecom_network:
+    driver: bridge
