@@ -1,5 +1,6 @@
 # Alunos:
  - Vinicius Pereira Polli
+ - Henrique Zanfir
 
 # Sistema de Alertas e Analytics de E-commerce
 
