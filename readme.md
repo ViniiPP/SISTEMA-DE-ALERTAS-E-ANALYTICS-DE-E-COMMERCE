@@ -4,7 +4,7 @@
 
 # Sistema de Alertas e Analytics de E-commerce
 
-Este repositório contém um projeto prático desenvolvido para demonstrar o funcionamento de um fluxo completo de Engenharia de Dados, integrando processamento em tempo real (streaming) com processamento em lotes (batch). 
+Este repositório contém um projeto prático desenvolvido para demonstrar o funcionamento de um fluxo completo de Engenharia de Dados, integrando processamento em tempo real (streaming) com processamento em lotes (batch) 
 
 A ideia aqui é simular um e-commerce que não para de gerar vendas. O sistema precisa receber essas vendas, guardar tudo como histórico, detectar na hora se uma compra tem valor muito alto (possível fraude) e, de tempos em tempos, calcular o faturamento de cada categoria de produto.
 
